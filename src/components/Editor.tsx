@@ -46,7 +46,7 @@ export const Editor: React.FC<EditorProps> = ({ contentToInsert, onContentInsert
       setLastSavedContent('')
       setIsDirty(false)
     }
-  }, [currentFile?.id]) // 只依赖文件ID，避免内容变化时重新设置
+  }, [currentFile?.id, currentFile?.content]) // 同时监听文件ID和内容变化
 
   // 初始化版本控制
   useEffect(() => {
@@ -269,7 +269,49 @@ export const Editor: React.FC<EditorProps> = ({ contentToInsert, onContentInsert
              <div className="flex flex-1">
                {/* 编辑器区域 */}
                <div className={`${showVersionHistory || showPDFPreview ? 'w-1/2' : 'w-full'} flex flex-col`}>
-                 {editMode === 'rich' ? (
+                 {currentFile && (currentFile.type === 'png' || currentFile.type === 'jpg' || currentFile.type === 'jpeg' || currentFile.type === 'gif' || currentFile.type === 'webp' || currentFile.type === 'svg') ? (
+                   // 图片文件显示
+                   <div className="flex-1 flex items-center justify-center bg-gray-100 overflow-auto">
+                     {currentFile.fileData ? (
+                       <img
+                         src={`data:image/${currentFile.type === 'svg' ? 'svg+xml' : currentFile.type};base64,${currentFile.fileData}`}
+                         alt={currentFile.name}
+                         className="max-w-full max-h-full object-contain"
+                         style={{ 
+                           scrollbarWidth: 'thin',
+                           scrollbarColor: '#cbd5e0 #f7fafc'
+                         }}
+                       />
+                     ) : (
+                       <div className="text-gray-500 text-center">
+                         <p className="text-lg font-medium">Image Preview</p>
+                         <p className="text-sm">{currentFile.name}</p>
+                         <p className="text-xs">Size: {currentFile.fileSize ? `${(currentFile.fileSize / 1024).toFixed(1)} KB` : 'Unknown'}</p>
+                       </div>
+                     )}
+                   </div>
+                 ) : currentFile && currentFile.type === 'pdf' ? (
+                   // PDF文件显示
+                   <div className="flex-1 flex items-center justify-center bg-gray-100 overflow-auto">
+                     {currentFile.fileData ? (
+                       <iframe
+                         src={`data:application/pdf;base64,${currentFile.fileData}`}
+                         className="w-full h-full border-0"
+                         title={currentFile.name}
+                         style={{ 
+                           scrollbarWidth: 'thin',
+                           scrollbarColor: '#cbd5e0 #f7fafc'
+                         }}
+                       />
+                     ) : (
+                       <div className="text-gray-500 text-center">
+                         <p className="text-lg font-medium">PDF Preview</p>
+                         <p className="text-sm">{currentFile.name}</p>
+                         <p className="text-xs">Size: {currentFile.fileSize ? `${(currentFile.fileSize / 1024).toFixed(1)} KB` : 'Unknown'}</p>
+                       </div>
+                     )}
+                   </div>
+                 ) : editMode === 'rich' ? (
                    <RichTextEditor 
                      onContentChange={(latexContent) => {
                        setContent(latexContent)
@@ -277,12 +319,17 @@ export const Editor: React.FC<EditorProps> = ({ contentToInsert, onContentInsert
                      }}
                    />
                  ) : (
-                   <textarea
-                     value={content}
-                     onChange={handleContentChange}
-                     className="flex-1 w-full border-0 p-4 font-mono text-sm resize-none focus:outline-none focus:ring-0 bg-white"
-                     placeholder="Enter LaTeX code here..."
-                   />
+                   <div className="flex-1 flex flex-col">
+                     <textarea
+                       value={content}
+                       onChange={handleContentChange}
+                       className="flex-1 w-full border-0 p-4 font-mono text-sm resize-none focus:outline-none focus:ring-0 bg-white overflow-y-auto editor-scrollbar"
+                       placeholder="Enter LaTeX code here..."
+                       style={{ 
+                         minHeight: '100%'
+                       }}
+                     />
+                   </div>
                  )}
                </div>
 
