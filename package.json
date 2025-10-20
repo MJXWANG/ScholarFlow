@@ -20,6 +20,7 @@
     "katex": "^0.16.8",
     "lucide-react": "^0.294.0",
     "monaco-editor": "^0.45.0",
+    "openai": "^6.5.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
     "postcss": "^8.4.32",

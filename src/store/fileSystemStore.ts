@@ -5,9 +5,11 @@ export interface ProjectFile {
   name: string
   path: string
   content: string
-  type: 'tex' | 'bib' | 'png' | 'jpg' | 'jpeg' | 'pdf' | 'svg' | 'other'
+  type: 'tex' | 'bib' | 'png' | 'jpg' | 'jpeg' | 'gif' | 'webp' | 'pdf' | 'svg' | 'doc' | 'docx' | 'txt' | 'md' | 'zip' | 'rar' | '7z' | 'other'
   lastModified: Date
   isDirty: boolean
+  fileData?: string // Base64 encoded file data for binary files
+  fileSize?: number // File size in bytes
 }
 
 export interface Project {
@@ -26,6 +28,7 @@ interface FileSystemState {
   
   // File operations
   createFile: (name: string, content?: string, type?: ProjectFile['type']) => void
+  uploadFile: (file: File) => Promise<void>
   saveFile: (fileId: string, content: string) => void
   deleteFile: (fileId: string) => void
   renameFile: (fileId: string, newName: string) => void
@@ -55,8 +58,17 @@ const getFileType = (filename: string): ProjectFile['type'] => {
     case 'png': return 'png'
     case 'jpg':
     case 'jpeg': return 'jpg'
+    case 'gif': return 'gif'
+    case 'webp': return 'webp'
     case 'pdf': return 'pdf'
     case 'svg': return 'svg'
+    case 'doc': return 'doc'
+    case 'docx': return 'docx'
+    case 'txt': return 'txt'
+    case 'md': return 'md'
+    case 'zip': return 'zip'
+    case 'rar': return 'rar'
+    case '7z': return '7z'
     default: return 'other'
   }
 }
@@ -79,6 +91,114 @@ export const useFileSystemStore = create<FileSystemState>((set, get) => ({
       type: fileType,
       lastModified: new Date(),
       isDirty: false
+    }
+
+    const updatedProject = {
+      ...state.currentProject,
+      files: [...state.currentProject.files, newFile],
+      currentFileId: newFile.id,
+      lastModified: new Date()
+    }
+
+    set({
+      currentProject: updatedProject,
+      projects: state.projects.map(p => 
+        p.id === updatedProject.id ? updatedProject : p
+      )
+    })
+  },
+
+  uploadFile: async (file: File) => {
+    console.log('uploadFile called with:', file.name, file.type, file.size)
+    const state = get()
+    if (!state.currentProject) {
+      console.error('No current project found')
+      return
+    }
+
+    const fileType = getFileType(file.name)
+    console.log('Detected file type:', fileType)
+    
+    // 更智能的文件类型检测
+    const isTextFile = ['tex', 'bib', 'txt', 'md', 'doc', 'docx'].includes(fileType) || 
+                      file.type.startsWith('text/') || 
+                      (fileType === 'other' && file.size < 1024 * 1024) // 小于1MB的无扩展名文件尝试作为文本处理
+    const isImageFile = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(fileType) || 
+                       file.type.startsWith('image/')
+    const isPdfFile = fileType === 'pdf' || file.type === 'application/pdf'
+    
+    console.log('File classification:', { isTextFile, isImageFile, isPdfFile, fileType, mimeType: file.type })
+    
+    let content = ''
+    let fileData: string | undefined
+    
+    try {
+      if (isTextFile) {
+        console.log('Reading as text file...')
+        // 对于文本文件，读取内容
+        content = await file.text()
+        console.log('Text content length:', content.length)
+      } else if (isImageFile) {
+        console.log('Processing as image file...')
+        // 对于图片文件，转换为Base64并显示预览信息
+        const arrayBuffer = await file.arrayBuffer()
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+        fileData = base64
+        content = `[Image file: ${file.name}]\nSize: ${file.size} bytes\nType: ${file.type}\n\nPreview available in file tree.`
+        console.log('Image processed, base64 length:', base64.length)
+      } else if (isPdfFile) {
+        console.log('Processing as PDF file...')
+        // 对于PDF文件，转换为Base64并显示预览信息
+        const arrayBuffer = await file.arrayBuffer()
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+        fileData = base64
+        content = `[PDF file: ${file.name}]\nSize: ${file.size} bytes\nType: ${file.type}\n\nPreview available in file tree.`
+        console.log('PDF processed, base64 length:', base64.length)
+      } else {
+        console.log('Processing as binary file...')
+        // 对于其他二进制文件，尝试作为文本读取（如果可能）
+        try {
+          const textContent = await file.text()
+          // 检查是否包含可打印字符
+          const printableChars = textContent.replace(/[^\x20-\x7E\s]/g, '').length
+          const totalChars = textContent.length
+          
+          if (printableChars / totalChars > 0.7) {
+            // 如果70%以上是可打印字符，当作文本处理
+            content = textContent
+            console.log('Binary file treated as text, printable ratio:', printableChars / totalChars)
+          } else {
+            // 真正的二进制文件
+            const arrayBuffer = await file.arrayBuffer()
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+            fileData = base64
+            content = `[Binary file: ${file.name}]\nSize: ${file.size} bytes\nType: ${file.type}\n\nThis file cannot be displayed as text.`
+            console.log('Binary file processed, base64 length:', base64.length)
+          }
+        } catch (textError) {
+          // 如果文本读取失败，作为二进制处理
+          const arrayBuffer = await file.arrayBuffer()
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+          fileData = base64
+          content = `[Binary file: ${file.name}]\nSize: ${file.size} bytes\nType: ${file.type}\n\nThis file cannot be displayed as text.`
+          console.log('Binary file processed, base64 length:', base64.length)
+        }
+      }
+    } catch (error) {
+      console.error('Error reading file:', error)
+      content = `[Error reading file: ${file.name}]\n${error instanceof Error ? error.message : 'Unknown error'}`
+    }
+
+    const newFile: ProjectFile = {
+      id: generateId(),
+      name: file.name,
+      path: `/${file.name}`,
+      content,
+      type: fileType,
+      lastModified: new Date(),
+      isDirty: false,
+      fileData,
+      fileSize: file.size
     }
 
     const updatedProject = {

@@ -331,16 +331,18 @@ ${latex}
       </div>
       
       {/* 编辑器 */}
-      <div className="flex-1 p-4">
+      <div className="flex-1 p-4 overflow-hidden">
         {isRichMode ? (
           <div
             ref={editorRef}
             contentEditable
-            className="w-full h-full p-4 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            className="w-full h-full p-4 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none overflow-y-auto editor-scrollbar"
             dangerouslySetInnerHTML={{ __html: content }}
             onInput={handleContentChange}
             onKeyDown={handleKeyDown}
-            style={{ minHeight: '400px' }}
+            style={{ 
+              minHeight: '100%'
+            }}
           />
         ) : (
           <textarea
@@ -351,8 +353,11 @@ ${latex}
                 onContentChange(e.target.value)
               }
             }}
-            className="w-full h-full p-4 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none font-mono text-sm"
+            className="w-full h-full p-4 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none font-mono text-sm overflow-y-auto editor-scrollbar"
             placeholder="输入LaTeX内容..."
+            style={{ 
+              minHeight: '100%'
+            }}
           />
         )}
       </div>
