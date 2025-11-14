@@ -3,7 +3,8 @@ import { useAIStore } from '../store/aiStore'
 import { useFileSystemStore } from '../store/fileSystemStore'
 import { IntentType } from '../services/intentUnderstandingService'
 import { AIPlanningService, AIThinkingProcess } from '../services/aiPlanningService'
-import { AIPlanningPanel } from './AIPlanningPanel'
+// Cursor风格：不需要规划面板
+// import { AIPlanningPanel } from './AIPlanningPanel'
 
 interface SmartConversationProps {
   onInsertContent?: (content: string) => void
@@ -32,7 +33,8 @@ export const SmartConversation: React.FC<SmartConversationProps> = ({ onInsertCo
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [isAutoExecuting, setIsAutoExecuting] = useState(false)
   const [thinkingProcess, setThinkingProcess] = useState<AIThinkingProcess | null>(null)
-  const [showPlanningPanel, setShowPlanningPanel] = useState(false)
+  // Cursor风格：不显示规划面板，自动执行
+  // const [showPlanningPanel, setShowPlanningPanel] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   
@@ -99,29 +101,39 @@ export const SmartConversation: React.FC<SmartConversationProps> = ({ onInsertCo
       addToConversationHistory(userInput, '🧠 正在分析你的需求...')
       
       // 生成AI规划
-      // 暂时移除未使用的currentFile变量
-      // const currentFile = getCurrentFile()
-      // 暂时移除未使用的context变量
-      // const context = {
-      //   currentFile: currentFile,
-      //   documentContext: {
-      //     content: currentFile?.content || '',
-      //     type: 'research',
-      //     field: 'computer science',
-      //     stage: 'writing'
-      //   }
-      // }
-      
       const planning = await AIPlanningService.analyzeAndPlan(userInput)
       setThinkingProcess(planning)
-      setShowPlanningPanel(true)
       
-      // 更新对话历史
-      addToConversationHistory('', `📋 已制定执行计划: ${planning.plan.title}`)
+      // 更新对话历史 - 显示思考过程
+      addToConversationHistory('', `📋 ${planning.plan.title}`)
+      
+      // Cursor风格：自动执行，不需要用户批准！
+      setIsAutoExecuting(true)
+      
+      try {
+        // 自动执行所有步骤
+        for (const step of planning.plan.steps) {
+          // 执行步骤
+          const result = await AIPlanningService.executePlanStep(step)
+          
+          // 如果生成了大纲内容，显示在对话中
+          if (result.success && result.result && step.action === 'generate_outline') {
+            addToConversationHistory('', `\n${result.result}`)
+          }
+        }
+        
+        addToConversationHistory('', `\n✅ 完成！`)
+        
+      } catch (executeError) {
+        console.error('执行失败:', executeError)
+        addToConversationHistory('', `❌ 执行失败: ${executeError instanceof Error ? executeError.message : '未知错误'}`)
+      } finally {
+        setIsAutoExecuting(false)
+      }
       
     } catch (error) {
       console.error('Error processing user input:', error)
-      addToConversationHistory('', `❌ 规划失败: ${error instanceof Error ? error.message : '未知错误'}`)
+      addToConversationHistory('', `❌ 处理失败: ${error instanceof Error ? error.message : '未知错误'}`)
     }
   }
 
@@ -130,101 +142,8 @@ export const SmartConversation: React.FC<SmartConversationProps> = ({ onInsertCo
     await processUserInput(action)
   }
 
-  // 规划面板处理函数
-  const handleApproveStep = (stepId: string) => {
-    if (!thinkingProcess) return
-    
-    const updatedPlan = {
-      ...thinkingProcess,
-      plan: {
-        ...thinkingProcess.plan,
-        steps: thinkingProcess.plan.steps.map(step =>
-          step.id === stepId ? { ...step, status: 'approved' as const } : step
-        )
-      }
-    }
-    setThinkingProcess(updatedPlan)
-    addToConversationHistory('', `✅ 已批准步骤: ${updatedPlan.plan.steps.find(s => s.id === stepId)?.title}`)
-  }
-
-  const handleSkipStep = (stepId: string) => {
-    if (!thinkingProcess) return
-    
-    const updatedPlan = {
-      ...thinkingProcess,
-      plan: {
-        ...thinkingProcess.plan,
-        steps: thinkingProcess.plan.steps.map(step =>
-          step.id === stepId ? { ...step, status: 'skipped' as const } : step
-        )
-      }
-    }
-    setThinkingProcess(updatedPlan)
-    addToConversationHistory('', `⏭️ 已跳过步骤: ${updatedPlan.plan.steps.find(s => s.id === stepId)?.title}`)
-  }
-
-  const handleExecutePlan = async () => {
-    if (!thinkingProcess) return
-    
-    setIsAutoExecuting(true)
-    setShowPlanningPanel(false)
-    
-    try {
-      const approvedSteps = thinkingProcess.plan.steps.filter(step => step.status === 'approved')
-      
-      for (const step of approvedSteps) {
-        addToConversationHistory('', `⚡ 正在执行: ${step.title}`)
-        
-        // 更新步骤状态为执行中
-        const updatedPlan = {
-          ...thinkingProcess,
-          plan: {
-            ...thinkingProcess.plan,
-            steps: thinkingProcess.plan.steps.map(s =>
-              s.id === step.id ? { ...s, status: 'executing' as const } : s
-            )
-          }
-        }
-        setThinkingProcess(updatedPlan)
-        
-        // 执行步骤
-        const result = await AIPlanningService.executePlanStep(step)
-        
-        // 如果生成了内容，显示在对话中
-        if (result.success && result.result && step.action === 'generate_outline') {
-          addToConversationHistory('', `📝 生成的大纲内容：\n\n${result.result}`)
-        }
-        
-        // 更新步骤状态为完成
-        const completedPlan = {
-          ...updatedPlan,
-          plan: {
-            ...updatedPlan.plan,
-            steps: updatedPlan.plan.steps.map(s =>
-              s.id === step.id ? { ...s, status: 'completed' as const } : s
-            )
-          }
-        }
-        setThinkingProcess(completedPlan)
-        
-        addToConversationHistory('', `🎉 完成: ${step.title}`)
-      }
-      
-      addToConversationHistory('', `✅ 计划执行完成!`)
-      
-    } catch (error) {
-      console.error('执行计划失败:', error)
-      addToConversationHistory('', `❌ 执行失败: ${error instanceof Error ? error.message : '未知错误'}`)
-    } finally {
-      setIsAutoExecuting(false)
-    }
-  }
-
-  const handleCancelPlan = () => {
-    setShowPlanningPanel(false)
-    setThinkingProcess(null)
-    addToConversationHistory('', '❌ 已取消计划')
-  }
+  // Cursor风格：移除复杂的规划面板处理函数
+  // 现在是自动执行，不需要手动批准和执行
 
   const getIntentIcon = (intentType: IntentType) => {
     const icons = {
@@ -484,18 +403,7 @@ export const SmartConversation: React.FC<SmartConversationProps> = ({ onInsertCo
         <div ref={messagesEndRef} />
       </div>
 
-      {/* AI规划面板 */}
-      {showPlanningPanel && thinkingProcess && (
-        <div className="border-t border-gray-200 p-4 bg-gray-50">
-          <AIPlanningPanel
-            thinkingProcess={thinkingProcess}
-            onApproveStep={handleApproveStep}
-            onSkipStep={handleSkipStep}
-            onExecutePlan={handleExecutePlan}
-            onCancelPlan={handleCancelPlan}
-          />
-        </div>
-      )}
+      {/* Cursor风格：移除规划面板，自动执行 */}
 
       {/* 输入框 */}
       <div className="border-t border-gray-200 bg-white p-4">
