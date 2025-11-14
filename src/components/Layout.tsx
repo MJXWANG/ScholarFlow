@@ -6,7 +6,12 @@ import { AIAssistant } from './AIAssistant'
 import { ResizableLayout } from './ResizableLayout'
 import { useLayoutStore } from '../store/layoutStore'
 
-export const Layout: React.FC = () => {
+interface LayoutProps {
+  onToggleTestPanel?: () => void
+  showTestPanel?: boolean
+}
+
+export const Layout: React.FC<LayoutProps> = ({ onToggleTestPanel, showTestPanel }) => {
   const {
     leftPanelWidth,
     rightPanelWidth,
@@ -19,7 +24,12 @@ export const Layout: React.FC = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <Header onToggleAI={() => setShowAIPanel(!showAIPanel)} showAI={showAIPanel} />
+      <Header 
+        onToggleAI={() => setShowAIPanel(!showAIPanel)} 
+        showAI={showAIPanel}
+        onToggleTestPanel={onToggleTestPanel}
+        showTestPanel={showTestPanel}
+      />
       <div className="flex flex-1 overflow-hidden">
         <ResizableLayout
           leftPanel={<FileTree />}

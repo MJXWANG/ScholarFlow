@@ -6,9 +6,11 @@ import { DocumentTextIcon, Cog6ToothIcon, ArrowsPointingOutIcon, ChatBubbleLeftR
 interface HeaderProps {
   onToggleAI: () => void
   showAI: boolean
+  onToggleTestPanel?: () => void
+  showTestPanel?: boolean
 }
 
-export const Header: React.FC<HeaderProps> = ({ onToggleAI, showAI }) => {
+export const Header: React.FC<HeaderProps> = ({ onToggleAI, showAI, onToggleTestPanel, showTestPanel }) => {
   const { 
     currentProject, 
     createProject, 
@@ -99,6 +101,19 @@ export const Header: React.FC<HeaderProps> = ({ onToggleAI, showAI }) => {
                >
                  <ArrowsPointingOutIcon className="h-5 w-5" />
                </button>
+               {onToggleTestPanel && (
+                 <button
+                   onClick={onToggleTestPanel}
+                   className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                     showTestPanel
+                       ? 'bg-purple-600 text-white hover:bg-purple-700'
+                       : 'bg-purple-500 text-white hover:bg-purple-600'
+                   }`}
+                   title="深度文档理解测试"
+                 >
+                   🧪 测试面板
+                 </button>
+               )}
                <button
                  onClick={onToggleAI}
                  className={`rounded-md p-1.5 transition-colors ${
