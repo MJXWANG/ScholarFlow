@@ -1,4 +1,5 @@
 import { OpenAI } from 'openai'
+import DocumentAnalysisService from './documentAnalysisService'
 
 // 初始化OpenAI客户端
 const OPENAI_API_KEY = (import.meta as any).env?.VITE_OPENAI_API_KEY || ''
@@ -404,146 +405,397 @@ export class IntentUnderstandingService {
     }
   }
 
-  // 检测文档问题
+  // 检测文档问题（增强版）
   static async detectDocumentIssues(documentContext: DocumentContext): Promise<{
     issues: Array<{
-      type: 'format' | 'content' | 'structure' | 'citation'
+      type: 'format' | 'content' | 'structure' | 'citation' | 'language'
       severity: 'low' | 'medium' | 'high'
       message: string
       suggestion: string
       position?: number
+      location?: string
+      line?: number
     }>
     suggestions: string[]
+    criticalCount?: number
+    warningCount?: number
   }> {
     try {
-      const prompt = `请分析以下文档并检测问题：
+      console.log('🔍 开始深度文档分析...')
+      
+      // 1. 先进行结构分析（本地快速分析）
+      const structure = DocumentAnalysisService.analyzeStructure(documentContext.content)
+      console.log('📊 文档结构分析完成:', structure.statistics)
+      
+      // 2. 使用规则引擎检测明显问题（本地）
+      const localIssues = await DocumentAnalysisService.detectIssues(
+        documentContext.content,
+        structure
+      )
+      console.log(`⚠️ 发现 ${localIssues.issues.length} 个问题（本地检测）`)
+      
+      // 3. 使用AI进行深度内容分析（OpenAI API）
+      let aiIssues: any[] = []
+      if (OPENAI_API_KEY && documentContext.content.length > 100) {
+        try {
+          const prompt = `请深度分析以下学术文档的内容质量：
 
-文档内容: ${documentContext.content.substring(0, 1000)}...
 文档类型: ${documentContext.type}
 文档领域: ${documentContext.field}
 文档阶段: ${documentContext.stage}
+总字数: ${structure.statistics.totalWordCount}
+章节数: ${structure.statistics.totalSections}
 
-请检测以下类型的问题：
-1. 格式问题（引用格式、段落结构等）
-2. 内容问题（逻辑不清晰、缺少关键信息等）
-3. 结构问题（章节顺序、大纲完整性等）
-4. 引用问题（缺少引用、格式错误等）
+文档大纲:
+${structure.outline.slice(0, 15).join('\n')}
+
+文档内容预览:
+${documentContext.content.substring(0, 1200)}
+
+请检测：
+1. 逻辑问题 - 论述是否连贯、论证是否充分
+2. 语言问题 - 表达是否清晰、用词是否准确
+3. 学术规范 - 是否符合学术写作标准
+4. 内容完整性 - 是否缺少关键章节或信息
 
 返回JSON格式：
 {
   "issues": [
     {
-      "type": "format|content|structure|citation",
-      "severity": "low|medium|high",
+      "type": "content|language|citation|structure",
+      "severity": "high|medium|low",
       "message": "问题描述",
-      "suggestion": "解决建议",
-      "position": 位置（可选）
+      "suggestion": "具体改进建议",
+      "location": "问题位置（章节名称）"
     }
   ],
-  "suggestions": ["建议1", "建议2"]
+  "suggestions": ["整体改进建议1", "整体改进建议2"]
 }`
 
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: '你是一个专业的学术编辑，擅长检测文档中的问题并提供改进建议。'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 1000
-      })
+          const response = await openai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [
+              {
+                role: 'system',
+                content: '你是一个资深的学术审稿人，擅长发现文档中的深层次问题并提供专业建议。'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.3,
+            max_tokens: 1500
+          })
 
-      const content = response.choices[0]?.message?.content || ''
-      return JSON.parse(content)
+          const aiResult = response.choices[0]?.message?.content || ''
+          const parsed = JSON.parse(aiResult)
+          aiIssues = parsed.issues || []
+          
+          console.log(`🤖 AI深度分析发现 ${aiIssues.length} 个问题`)
+          
+          // 合并建议
+          const combinedSuggestions = [
+            ...(parsed.suggestions || []),
+            ...this.generateStructureSuggestions(structure)
+          ]
+          
+          return {
+            issues: [...localIssues.issues, ...aiIssues],
+            suggestions: combinedSuggestions,
+            criticalCount: localIssues.criticalCount,
+            warningCount: localIssues.warningCount
+          }
+        } catch (aiError) {
+          console.warn('AI分析失败，使用本地检测结果:', aiError)
+        }
+      }
+      
+      // 如果AI分析失败或未启用，返回本地检测结果
+      return {
+        issues: localIssues.issues,
+        suggestions: this.generateStructureSuggestions(structure),
+        criticalCount: localIssues.criticalCount,
+        warningCount: localIssues.warningCount
+      }
+      
     } catch (error) {
-      console.error('Error detecting document issues:', error)
+      console.error('❌ 文档问题检测失败:', error)
       return {
         issues: [],
-        suggestions: ['请检查文档内容']
+        suggestions: ['文档分析服务暂时不可用，请稍后重试']
       }
     }
   }
+  
+  // 生成结构相关建议
+  private static generateStructureSuggestions(structure: any): string[] {
+    const suggestions: string[] = []
+    
+    if (structure.statistics.emptySections > 0) {
+      suggestions.push(`建议填充 ${structure.statistics.emptySections} 个空章节的内容`)
+    }
+    
+    if (structure.statistics.totalSections < 3) {
+      suggestions.push('建议增加章节数量，完善文档结构')
+    }
+    
+    if (structure.statistics.totalWordCount < 500) {
+      suggestions.push('建议扩充文档内容，目前内容较少')
+    }
+    
+    if (structure.statistics.averageWordsPerSection < 100) {
+      suggestions.push('各章节内容较少，建议增加详细描述')
+    }
+    
+    return suggestions
+  }
 
-  // 主动建议
+  // 主动建议（增强版 - 结合本地分析和AI）
   static async generateProactiveSuggestions(
     documentContext: DocumentContext,
-    userContext: UserContext
+    _userContext: UserContext
   ): Promise<{
     suggestions: Array<{
-      type: 'content' | 'structure' | 'format' | 'citation'
+      type: 'content' | 'structure' | 'format' | 'citation' | 'quality'
       priority: 'low' | 'medium' | 'high'
       message: string
       action: string
       reason: string
     }>
     nextSteps: string[]
+    fieldInfo?: {
+      detectedField: string
+      confidence: number
+      suggestedCitations: string[]
+    }
   }> {
     try {
-      const prompt = `基于以下文档和用户信息，提供主动建议：
+      console.log('💡 开始生成主动建议...')
+      
+      // 1. 文档结构分析
+      const structure = DocumentAnalysisService.analyzeStructure(documentContext.content)
+      
+      // 2. 学术领域识别（AI）
+      let fieldInfo: any = null
+      if (OPENAI_API_KEY && documentContext.content.length > 200) {
+        try {
+          const fieldDetection = await DocumentAnalysisService.detectField(documentContext.content)
+          fieldInfo = {
+            detectedField: fieldDetection.primaryField,
+            confidence: fieldDetection.confidence,
+            suggestedCitations: fieldDetection.suggestedCitations
+          }
+          console.log(`🎓 识别领域: ${fieldDetection.primaryField} (${(fieldDetection.confidence * 100).toFixed(0)}%)`)
+        } catch (e) {
+          console.warn('领域识别失败:', e)
+        }
+      }
+      
+      // 3. 质量评估（AI）
+      let qualityScore: any = null
+      if (OPENAI_API_KEY && documentContext.content.length > 200) {
+        try {
+          qualityScore = await DocumentAnalysisService.evaluateQuality(
+            documentContext.content,
+            structure
+          )
+          console.log(`📊 质量评分: ${qualityScore.overall}/10`)
+        } catch (e) {
+          console.warn('质量评估失败:', e)
+        }
+      }
+      
+      // 4. 生成本地建议
+      const localSuggestions: any[] = []
+      
+      // 结构建议
+      if (structure.statistics.emptySections > 0) {
+        localSuggestions.push({
+          type: 'structure',
+          priority: 'high',
+          message: `有 ${structure.statistics.emptySections} 个章节需要填充内容`,
+          action: '点击章节标题开始撰写',
+          reason: '完整的章节结构有助于读者理解'
+        })
+      }
+      
+      if (structure.statistics.totalSections < 3) {
+        localSuggestions.push({
+          type: 'structure',
+          priority: 'high',
+          message: '文档结构过于简单',
+          action: '建议添加更多章节（引言、方法、结果、讨论等）',
+          reason: '学术论文通常需要包含多个标准章节'
+        })
+      }
+      
+      // 内容建议
+      if (structure.statistics.totalWordCount < 1000) {
+        localSuggestions.push({
+          type: 'content',
+          priority: 'medium',
+          message: '文档内容较少',
+          action: `建议扩充内容至少到2000字（当前${structure.statistics.totalWordCount}字）`,
+          reason: '充实的内容能够更好地阐述研究成果'
+        })
+      }
+      
+      // 引用建议
+      const hasReferences = documentContext.content.toLowerCase().includes('reference') ||
+                           documentContext.content.toLowerCase().includes('参考文献')
+      if (!hasReferences && structure.statistics.totalWordCount > 500) {
+        localSuggestions.push({
+          type: 'citation',
+          priority: 'high',
+          message: '缺少参考文献章节',
+          action: '添加"参考文献"章节并引用相关文献',
+          reason: '学术论文必须引用前人研究成果'
+        })
+      }
+      
+      // 质量建议
+      if (qualityScore) {
+        if (qualityScore.structure < 7) {
+          localSuggestions.push({
+            type: 'structure',
+            priority: 'medium',
+            message: '文档结构需要改进',
+            action: '重新组织章节顺序，确保逻辑清晰',
+            reason: `当前结构评分: ${qualityScore.structure}/10`
+          })
+        }
+        
+        if (qualityScore.clarity < 7) {
+          localSuggestions.push({
+            type: 'quality',
+            priority: 'medium',
+            message: '表达清晰度可以提升',
+            action: '使用更简洁明了的语言表达观点',
+            reason: `当前清晰度评分: ${qualityScore.clarity}/10`
+          })
+        }
+      }
+      
+      // 5. 使用AI生成深度建议（可选）
+      let aiSuggestions: any[] = []
+      if (OPENAI_API_KEY && documentContext.content.length > 200) {
+        try {
+          const prompt = `作为学术写作顾问，请为以下文档提供改进建议：
 
 文档信息:
 - 类型: ${documentContext.type}
-- 领域: ${documentContext.field}
-- 阶段: ${documentContext.stage}
-- 字数: ${documentContext.wordCount}
-- 内容预览: ${documentContext.content.substring(0, 500)}...
+- 识别领域: ${fieldInfo?.detectedField || documentContext.field}
+- 写作阶段: ${documentContext.stage}
+- 总字数: ${structure.statistics.totalWordCount}
+- 章节数: ${structure.statistics.totalSections}
 
-用户信息:
-- 专业水平: ${userContext.expertise}
-- 语言偏好: ${userContext.preferences.language}
-- 写作风格: ${userContext.preferences.style}
+大纲结构:
+${structure.outline.slice(0, 10).join('\n')}
 
-请提供主动建议，包括：
-1. 内容改进建议
-2. 结构优化建议
-3. 格式完善建议
-4. 引用补充建议
+质量评估:
+${qualityScore ? `- 结构: ${qualityScore.structure}/10\n- 清晰度: ${qualityScore.clarity}/10\n- 连贯性: ${qualityScore.coherence}/10` : '暂无评估'}
 
-返回JSON格式：
+请提供3-5条具体的改进建议，返回JSON：
 {
   "suggestions": [
     {
-      "type": "content|structure|format|citation",
-      "priority": "low|medium|high",
-      "message": "建议描述",
-      "action": "具体行动",
+      "type": "content|structure|format|citation|quality",
+      "priority": "high|medium|low",
+      "message": "简短的建议描述",
+      "action": "具体的行动建议",
       "reason": "建议理由"
     }
   ],
-  "nextSteps": ["下一步1", "下一步2"]
+  "nextSteps": ["下一步行动1", "下一步行动2"]
 }`
 
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: '你是一个专业的学术写作顾问，能够主动发现文档中的改进机会并提供具体建议。'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 1200
-      })
+          const response = await openai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [
+              {
+                role: 'system',
+                content: '你是一位资深的学术写作导师，擅长提供具体可行的改进建议。'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 1500
+          })
 
-      const content = response.choices[0]?.message?.content || ''
-      return JSON.parse(content)
+          const aiResult = response.choices[0]?.message?.content || ''
+          const parsed = JSON.parse(aiResult)
+          aiSuggestions = parsed.suggestions || []
+          
+          console.log(`🤖 AI生成了 ${aiSuggestions.length} 条建议`)
+          
+          // 返回合并的建议
+          return {
+            suggestions: [...localSuggestions, ...aiSuggestions],
+            nextSteps: parsed.nextSteps || this.generateNextSteps(structure, documentContext.stage),
+            fieldInfo
+          }
+        } catch (aiError) {
+          console.warn('AI建议生成失败，使用本地建议:', aiError)
+        }
+      }
+      
+      // 返回本地建议
+      return {
+        suggestions: localSuggestions,
+        nextSteps: this.generateNextSteps(structure, documentContext.stage),
+        fieldInfo
+      }
+      
     } catch (error) {
-      console.error('Error generating proactive suggestions:', error)
+      console.error('❌ 主动建议生成失败:', error)
       return {
         suggestions: [],
         nextSteps: ['继续完善文档内容']
       }
     }
+  }
+  
+  // 生成下一步行动建议
+  private static generateNextSteps(structure: any, stage: string): string[] {
+    const nextSteps: string[] = []
+    
+    switch (stage) {
+      case 'outline':
+        nextSteps.push('完善大纲结构')
+        if (structure.statistics.emptySections > 0) {
+          nextSteps.push('填充空章节的内容')
+        }
+        nextSteps.push('添加每个章节的详细说明')
+        break
+      
+      case 'writing':
+        nextSteps.push('继续撰写未完成的章节')
+        nextSteps.push('确保内容连贯性')
+        nextSteps.push('添加必要的引用')
+        break
+      
+      case 'editing':
+        nextSteps.push('检查语言表达是否清晰')
+        nextSteps.push('优化段落结构')
+        nextSteps.push('完善参考文献')
+        break
+      
+      case 'finalizing':
+        nextSteps.push('最后检查格式规范')
+        nextSteps.push('确认引用格式一致')
+        nextSteps.push('准备提交')
+        break
+      
+      default:
+        nextSteps.push('开始撰写文档内容')
+        nextSteps.push('建立清晰的文档结构')
+    }
+    
+    return nextSteps
   }
 }
 
