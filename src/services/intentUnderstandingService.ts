@@ -485,11 +485,18 @@ ${documentContext.content.substring(0, 1200)}
               }
             ],
             temperature: 0.3,
-            max_tokens: 1500
+            max_tokens: 1500,
+            response_format: { type: 'json_object' }
           })
 
           const aiResult = response.choices[0]?.message?.content || ''
-          const parsed = JSON.parse(aiResult)
+          // 安全解析JSON（提取JSON部分）
+          let jsonStr = aiResult.trim()
+          const jsonMatch = aiResult.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            jsonStr = jsonMatch[0]
+          }
+          const parsed = JSON.parse(jsonStr)
           aiIssues = parsed.issues || []
           
           console.log(`🤖 AI深度分析发现 ${aiIssues.length} 个问题`)
@@ -723,11 +730,18 @@ ${qualityScore ? `- 结构: ${qualityScore.structure}/10\n- 清晰度: ${quality
               }
             ],
             temperature: 0.7,
-            max_tokens: 1500
+            max_tokens: 1500,
+            response_format: { type: 'json_object' }
           })
 
           const aiResult = response.choices[0]?.message?.content || ''
-          const parsed = JSON.parse(aiResult)
+          // 安全解析JSON（提取JSON部分）
+          let jsonStr = aiResult.trim()
+          const jsonMatch = aiResult.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            jsonStr = jsonMatch[0]
+          }
+          const parsed = JSON.parse(jsonStr)
           aiSuggestions = parsed.suggestions || []
           
           console.log(`🤖 AI生成了 ${aiSuggestions.length} 条建议`)

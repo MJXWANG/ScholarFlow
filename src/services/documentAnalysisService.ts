@@ -156,7 +156,7 @@ ${preview}
         messages: [
           {
             role: 'system',
-            content: '你是一个专业的学术分类专家，能够准确识别文档所属的学术领域和研究方向。'
+            content: '你是一个专业的学术分类专家，能够准确识别文档所属的学术领域和研究方向。请只返回JSON格式，不要包含任何其他文字说明。'
           },
           {
             role: 'user',
@@ -164,11 +164,20 @@ ${preview}
           }
         ],
         temperature: 0.3,
-        max_tokens: 800
+        max_tokens: 800,
+        response_format: { type: 'json_object' }
       })
       
       const result = response.choices[0]?.message?.content || ''
-      const parsed = JSON.parse(result)
+      
+      // 尝试提取JSON（如果AI返回了说明文字）
+      let jsonStr = result.trim()
+      const jsonMatch = result.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0]
+      }
+      
+      const parsed = JSON.parse(jsonStr)
       
       return {
         primaryField: parsed.primaryField || 'Unknown',
@@ -236,7 +245,7 @@ ${content.substring(0, 800)}
         messages: [
           {
             role: 'system',
-            content: '你是一个专业的学术审稿人，能够客观评估文档质量并提供建设性意见。'
+            content: '你是一个专业的学术审稿人，能够客观评估文档质量并提供建设性意见。请只返回JSON格式，不要包含任何其他文字说明。'
           },
           {
             role: 'user',
@@ -244,11 +253,20 @@ ${content.substring(0, 800)}
           }
         ],
         temperature: 0.3,
-        max_tokens: 1000
+        max_tokens: 1000,
+        response_format: { type: 'json_object' }
       })
       
       const result = response.choices[0]?.message?.content || ''
-      const parsed = JSON.parse(result)
+      
+      // 尝试提取JSON（如果AI返回了说明文字）
+      let jsonStr = result.trim()
+      const jsonMatch = result.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0]
+      }
+      
+      const parsed = JSON.parse(jsonStr)
       
       return {
         structure: parsed.structure || 7,
